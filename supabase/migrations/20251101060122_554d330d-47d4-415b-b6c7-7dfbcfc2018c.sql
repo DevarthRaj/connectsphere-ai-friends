@@ -150,3 +150,33 @@ CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW
   EXECUTE FUNCTION public.handle_new_user();
+
+
+  --Changes made to profiles
+  -- Add additional profile fields
+ALTER TABLE public.profiles
+ADD COLUMN avatar_url TEXT,
+ADD COLUMN banner_url TEXT,
+ADD COLUMN github_link TEXT,
+ADD COLUMN linkedin_link TEXT,
+ADD COLUMN bio TEXT;
+
+-- Add constraints for URL validation
+ALTER TABLE public.profiles
+ADD CONSTRAINT github_link_format CHECK (
+  github_link IS NULL OR 
+  github_link ~* '^https?://(www\.)?github\.com/[a-zA-Z0-9_-]+/?$'
+);
+
+ALTER TABLE public.profiles
+ADD CONSTRAINT linkedin_link_format CHECK (
+  linkedin_link IS NULL OR 
+  linkedin_link ~* '^https?://(www\.)?linkedin\.com/in/[a-zA-Z0-9_-]+/?$'
+);
+
+-- Add constraint for bio length
+ALTER TABLE public.profiles
+ADD CONSTRAINT bio_length CHECK (
+  bio IS NULL OR 
+  char_length(bio) <= 500
+);
