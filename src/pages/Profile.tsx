@@ -57,12 +57,15 @@ const Profile = () => {
 
       const { data, error } = await supabase
         .from("profiles")
-        .select("*") // We'll fix this 406 error next
+        .select(
+          "id, username, avatar_url, banner_url, github_link, linkedin_link, bio"
+        )
         .eq("id", session.user.id)
-        .single();
+        .maybeSingle();
 
       if (error) {
-        toast({ title: "Error", description: "Failed to load profile", variant: "destructive" });
+        console.error("Error fetching profile:", error);
+        toast({ title: "Error", description: "Failed to load profile. " + error.message, variant: "destructive" });
       } else if (data) {
         setProfile(data);
         setFormData({
@@ -95,7 +98,7 @@ const Profile = () => {
 
   const handleInputChange = (field: string, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
-    // ... (rest of your validation logic for text fields)
+    
     if (field === "github_link") {
       setErrors((prev) => ({ ...prev, github_link: validateGithubLink(value) ? "" : "Invalid GitHub URL." }));
     }
@@ -116,7 +119,6 @@ const Profile = () => {
     const file = event.target.files[0];
     const fileExt = file.name.split('.').pop();
     const fileName = `${Math.random()}.${fileExt}`;
-    // We use the user's ID as the folder path, as required by our new Storage policy
     const filePath = `${user.id}/${fileName}`;
 
     if (type === 'avatar') setUploadingAvatar(true);
@@ -124,7 +126,7 @@ const Profile = () => {
 
     const { error: uploadError } = await supabase.storage
       .from(type === 'avatar' ? 'avatars' : 'banners')
-      .upload(filePath, file, { upsert: true }); // upsert: true will overwrite existing file
+      .upload(filePath, file, { upsert: true });
 
     if (uploadError) {
       toast({ title: "Upload Error", description: uploadError.message, variant: "destructive" });
@@ -133,7 +135,6 @@ const Profile = () => {
       return;
     }
 
-    // Get the public URL of the file we just uploaded
     const { data: publicUrlData } = supabase.storage
       .from(type === 'avatar' ? 'avatars' : 'banners')
       .getPublicUrl(filePath);
@@ -146,12 +147,9 @@ const Profile = () => {
     }
 
     const newUrl = publicUrlData.publicUrl;
-
-    // Update the local form data to show the new image instantly
     const fieldName = type === 'avatar' ? 'avatar_url' : 'banner_url';
     setFormData(prev => ({ ...prev, [fieldName]: newUrl }));
 
-    // Update the database immediately (auto-save for images)
     const { error: updateError } = await supabase
       .from("profiles")
       .update({ [fieldName]: newUrl })
@@ -182,10 +180,9 @@ const Profile = () => {
 
     setSaving(true);
 
-    // We only update the text fields here, as images auto-save
     const { error } = await supabase
       .from("profiles")
-      .update({
+      .upsert({
         username: formData.username,
         github_link: formData.github_link || null,
         linkedin_link: formData.linkedin_link || null,
@@ -297,10 +294,7 @@ const Profile = () => {
             <Input
               id="username"
               value={formData.username}
-              // =================== //
-              // === THIS IS THE FIX === //
               onChange={(e) => handleInputChange("username", e.target.value)}
-              // =================== //
               required
               minLength={3}
               maxLength={30}
@@ -352,7 +346,7 @@ const Profile = () => {
               onChange={(e) => handleInputChange("bio", e.target.value)}
               placeholder="Tell us about yourself..."
               rows={4}
-      maxLength={300}
+              maxLength={300}
               className={errors.bio ? "border-destructive" : ""}
             />
             <div className="flex justify-between items-center">
