@@ -57,7 +57,7 @@ const Profile = () => {
 
       const { data, error } = await supabase
         .from("profiles")
-        .select("*")
+        .select("*") // We'll fix this 406 error next
         .eq("id", session.user.id)
         .single();
 
@@ -297,7 +297,10 @@ const Profile = () => {
             <Input
               id="username"
               value={formData.username}
-              onChange={(e) => handleInputChange("username", e.g.target.value)}
+              // =================== //
+              // === THIS IS THE FIX === //
+              onChange={(e) => handleInputChange("username", e.target.value)}
+              // =================== //
               required
               minLength={3}
               maxLength={30}
@@ -349,7 +352,7 @@ const Profile = () => {
               onChange={(e) => handleInputChange("bio", e.target.value)}
               placeholder="Tell us about yourself..."
               rows={4}
-              maxLength={300}
+      maxLength={300}
               className={errors.bio ? "border-destructive" : ""}
             />
             <div className="flex justify-between items-center">
