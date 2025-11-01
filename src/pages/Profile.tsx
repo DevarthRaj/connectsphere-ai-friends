@@ -24,7 +24,6 @@ const Profile = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  // Refs for the hidden file inputs
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const bannerInputRef = useRef<HTMLInputElement>(null);
 
@@ -53,7 +52,7 @@ const Profile = () => {
         return;
       }
 
-      setUser(session.user);
+      setUser(session.user); // User is set here
 
       const { data, error } = await supabase
         .from("profiles")
@@ -61,7 +60,7 @@ const Profile = () => {
           "id, username, avatar_url, banner_url, github_link, linkedin_link, bio"
         )
         .eq("id", session.user.id)
-        .maybeSingle();
+        .maybeSingle(); // Use maybeSingle() to prevent 0-row error
 
       if (error) {
         console.error("Error fetching profile:", error);
@@ -113,6 +112,7 @@ const Profile = () => {
   // 3. NEW FILE UPLOAD LOGIC
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>, type: 'avatar' | 'banner') => {
     if (!event.target.files || event.target.files.length === 0 || !user) {
+      toast({ title: "Error", description: "You must be logged in to upload files.", variant: "destructive" });
       return;
     }
 
@@ -148,18 +148,13 @@ const Profile = () => {
 
     const newUrl = publicUrlData.publicUrl;
     const fieldName = type === 'avatar' ? 'avatar_url' : 'banner_url';
+    
+    // === THIS IS THE ONLY THING THAT HAPPENS === //
+    // Update the local form data to show the new image instantly
+    // We will save it when the user clicks "Save Changes"
     setFormData(prev => ({ ...prev, [fieldName]: newUrl }));
-
-    const { error: updateError } = await supabase
-      .from("profiles")
-      .update({ [fieldName]: newUrl })
-      .eq("id", user.id);
-
-    if (updateError) {
-      toast({ title: "Profile Error", description: "Image uploaded, but failed to save to profile.", variant: "destructive" });
-    } else {
-      toast({ title: "Success", description: `${type === 'avatar' ? 'Avatar' : 'Banner'} updated!` });
-    }
+    
+    toast({ title: "Upload Complete", description: "Image preview updated. Click 'Save Changes' to apply." });
 
     setUploadingAvatar(false);
     setUploadingBanner(false);
@@ -169,6 +164,11 @@ const Profile = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    if (!user) {
+      toast({ title: "Error", description: "User not loaded yet. Please wait and try again.", variant: "destructive" });
+      return;
+    }
+
     const githubValid = validateGithubLink(formData.github_link);
     const linkedinValid = validateLinkedinLink(formData.linkedin_link);
     const bioValid = formData.bio.length <= 300;
@@ -180,22 +180,25 @@ const Profile = () => {
 
     setSaving(true);
 
+    // This upsert now saves EVERYTHING: text fields AND the new image URLs
     const { error } = await supabase
       .from("profiles")
       .upsert({
+        id: user.id, // This is why the user object is required
         username: formData.username,
+        avatar_url: formData.avatar_url || null, // Now we save the new URL
+        banner_url: formData.banner_url || null, // And this one too
         github_link: formData.github_link || null,
         linkedin_link: formData.linkedin_link || null,
         bio: formData.bio || null,
-      })
-      .eq("id", user!.id);
+      });
 
     setSaving(false);
 
     if (error) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     } else {
-      toast({ title: "Success", description: "Profile updated successfully" });
+      toast({ title: "Success", description: "Profile saved successfully" });
     }
   };
 
@@ -221,10 +224,8 @@ const Profile = () => {
 
       <main className="container mx-auto max-w-3xl">
         
-        {/* === START OF MODERN LAYOUT === */}
         <div className="relative mb-24">
           
-          {/* The Banner */}
           <div className="relative group">
             <div 
               className="h-48 w-full rounded-b-lg bg-cover bg-center"
@@ -233,7 +234,6 @@ const Profile = () => {
                 backgroundColor: formData.banner_url ? 'transparent' : '#1f2937'
               }}
             />
-            {/* Clickable Upload Overlay for Banner */}
             <div 
               className="absolute inset-0 bg-black/50 flex items-center justify-center rounded-b-lg opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
               onClick={() => bannerInputRef.current?.click()}
@@ -253,7 +253,6 @@ const Profile = () => {
             />
           </div>
 
-          {/* The Avatar */}
           <div className="absolute left-8 -bottom-16">
             <div className="relative group">
               <Avatar className="h-32 w-32 border-4 border-background rounded-full">
@@ -262,7 +261,6 @@ const Profile = () => {
                   <UserIcon className="h-16 w-16" />
                 </AvatarFallback>
               </Avatar>
-              {/* Clickable Upload Overlay for Avatar */}
               <div 
                 className="absolute inset-0 bg-black/50 flex items-center justify-center rounded-full opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
                 onClick={() => avatarInputRef.current?.click()}
@@ -283,10 +281,7 @@ const Profile = () => {
             </div>
           </div>
         </div>
-        {/* === END OF MODERN LAYOUT === */}
 
-
-        {/* 2. The Form (sits below the banner) */}
         <form onSubmit={handleSubmit} className="space-y-6 px-4 pb-8">
           
           <div className="space-y-2">
@@ -305,8 +300,6 @@ const Profile = () => {
               3-30 characters, letters, numbers, and underscores only
             </p>
           </div>
-
-          {/* Removed the URL inputs for avatar and banner */}
 
           <div className="space-y-2">
             <Label htmlFor="github_link">GitHub Profile</Label>
