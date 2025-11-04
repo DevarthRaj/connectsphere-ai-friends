@@ -5,10 +5,13 @@ import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { Search, UserPlus } from "lucide-react";
+import { User } from "@supabase/supabase-js";
+import type { Tables } from "@/integrations/supabase/types"; // Import the Tables type
 
 const ConnectionRequests = () => {
   const [searchUsername, setSearchUsername] = useState("");
-  const [searchResult, setSearchResult] = useState<any>(null);
+  // FIX #2: Use a specific TypeScript type instead of 'any'
+  const [searchResult, setSearchResult] = useState<Tables<"profiles"> | null>(null);
   const [searching, setSearching] = useState(false);
   const [sending, setSending] = useState(false);
   const { toast } = useToast();
@@ -21,7 +24,8 @@ const ConnectionRequests = () => {
       const { data: profile, error } = await supabase
         .from("profiles")
         .select("*")
-        .eq("username", searchUsername.trim())
+        // FIX #3: Use case-insensitive search for a better user experience
+        .ilike("username", searchUsername.trim())
         .single();
 
       if (error || !profile) {
@@ -37,7 +41,6 @@ const ConnectionRequests = () => {
           toast({
             title: "That's you!",
             description: "You can't send a connection request to yourself.",
-            variant: "destructive",
           });
           setSearchResult(null);
         } else {
@@ -62,16 +65,27 @@ const ConnectionRequests = () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       
+      // FIX #1: Add a guard clause to ensure the user is logged in
+      if (!user) {
+        toast({
+          title: "Not Authenticated",
+          description: "You must be logged in to send a request.",
+          variant: "destructive",
+        });
+        setSending(false);
+        return;
+      }
+      
       const { error } = await supabase
         .from("connections")
         .insert({
-          requester_id: user?.id,
+          requester_id: user.id, // Now guaranteed to not be null
           receiver_id: searchResult.id,
           status: "pending"
         });
 
       if (error) {
-        if (error.code === "23505") {
+        if (error.code === "23505") { // Handles duplicate requests
           toast({
             title: "Request already sent",
             description: "You've already sent a request to this user.",

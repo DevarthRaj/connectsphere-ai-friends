@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { MessageSquare, Video } from "lucide-react";
 import ChatWindow from "./ChatWindow";
+import { User } from "@supabase/supabase-js";
 
 interface Connection {
   id: string;
