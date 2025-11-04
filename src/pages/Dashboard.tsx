@@ -2,107 +2,151 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { User } from "@supabase/supabase-js";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import { LogOut, UserCircle, Users } from "lucide-react"; // Import the 'Users' icon
-import AIChat from "@/components/AIChat";
-import ConnectionRequests from "@/components/ConnectionRequests";
-import PendingRequests from "@/components/PendingRequests";
-import PrivateChats from "@/components/PrivateChats";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Loader2, User as UserIcon, LogOut, UserCircle, Users, Bot } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils"; // You need this!
+import type { Tables } from "@/integrations/supabase/types";
+import type { ActiveChat, ChatConnection } from "@/types/chat";
 
-const Dashboard = () => {
-  const [user, setUser] = useState<User | null>(null);
+// Define the types we need
+type Profile = Tables<"profiles">;
+type ConnectionWithProfiles = Tables<"connections"> & {
+  requester: Pick<Profile, "id" | "username" | "avatar_url">;
+  receiver: Pick<Profile, "id" | "username" | "avatar_url">;
+  conversations: { id: string }[];
+};
+
+interface ChatListProps {
+  user: User;
+  onSelectChat: (chat: ActiveChat) => void;
+  activeChatId: string | null;
+}
+
+const ChatList = ({ user, onSelectChat, activeChatId }: ChatListProps) => {
   const [loading, setLoading] = useState(true);
+  const [friends, setFriends] = useState<ConnectionWithProfiles[]>([]);
+  const { toast } = useToast();
   const navigate = useNavigate();
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
-      if (!session) {
-        navigate("/auth");
+    const fetchFriends = async () => {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from("connections")
+        .select(`
+          id,
+          status,
+          requester:requester_id (id, username, avatar_url),
+          receiver:receiver_id (id, username, avatar_url),
+          conversations ( id )
+        `)
+        .eq("status", "accepted")
+        .or(`requester_id.eq.${user.id},receiver_id.eq.${user.id}`);
+
+      if (error) {
+        console.error("Error fetching friends:", error);
+        toast({ title: "Error", description: "Failed to load friends list.", variant: "destructive" });
+      } else {
+        setFriends(data as unknown as ConnectionWithProfiles[]);
       }
       setLoading(false);
-    });
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
-      if (!session) {
-        navigate("/auth");
-      }
-    });
-
-    return () => subscription.unsubscribe();
-  }, [navigate]);
+    };
+    fetchFriends();
+  }, [user.id, toast]);
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
     navigate("/auth");
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
-      </div>
-    );
-  }
+  const getOtherUser = (conn: ConnectionWithProfiles) => {
+    return conn.requester.id === user.id ? conn.receiver : conn.requester;
+  };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background via-primary/5 to-accent/5">
-      <header className="border-b bg-card/80 backdrop-blur-lg sticky top-0 z-50">
-        <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-          <h1 className="text-2xl font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
+    <aside className="w-full md:w-1/3 lg:w-1/4 h-full flex flex-col bg-card border-r">
+      {/* Header for the Sidebar */}
+      <header className="p-4 border-b">
+        <div className="flex justify-between items-center">
+          <h1 className="text-xl font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
             ConnectSphere
           </h1>
-          <div className="flex gap-2">
-            
-            {/* THIS IS THE NEW BUTTON */}
-            <Button variant="outline" onClick={() => navigate("/connections")}>
-              <Users className="mr-2 h-4 w-4" />
-              Connections
+          <div className="flex gap-1">
+            <Button variant="ghost" size="icon" onClick={() => navigate("/connections")}>
+              <Users className="h-5 w-5" />
             </Button>
-
-            <Button variant="outline" onClick={() => navigate("/profile")}>
-              <UserCircle className="mr-2 h-4 w-4" />
-              Profile
+            <Button variant="ghost" size="icon" onClick={() => navigate("/profile")}>
+              <UserCircle className="h-5 w-5" />
             </Button>
-            <Button variant="outline" onClick={handleSignOut}>
-              <LogOut className="mr-2 h-4 w-4" />
-              Sign Out
+            <Button variant="ghost" size="icon" onClick={handleSignOut}>
+              <LogOut className="h-5 w-5" />
             </Button>
           </div>
         </div>
+        {/* You could add a chat search bar here */}
       </header>
 
-      <main className="container mx-auto px-4 py-8">
-        {/* The rest of your dashboard with the tabs remains the same */}
-        <Tabs defaultValue="ai-chat" className="w-full">
-          <TabsList className="grid w-full grid-cols-4 mb-8">
-            <TabsTrigger value="ai-chat">AI Assistant</TabsTrigger>
-            <TabsTrigger value="connect">Connect</TabsTrigger>
-            <TabsTrigger value="pending">Requests</TabsTrigger>
-            <TabsTrigger value="chats">Chats</TabsTrigger>
-          </TabsList>
+      {/* Chat List */}
+      <div className="flex-1 overflow-y-auto">
+        {loading ? (
+          <div className="flex items-center justify-center h-full">
+            <Loader2 className="h-8 w-8 animate-spin" />
+          </div>
+        ) : (
+          <nav className="p-2 space-y-1">
+            {/* The "Perfect Place": A pinned AI chat contact */}
+            <Button
+              variant="ghost"
+              className={cn(
+                "w-full justify-start h-16 gap-3 p-2",
+                activeChatId === "ai" && "bg-secondary"
+              )}
+              onClick={() => onSelectChat({ type: "ai", id: "ai" })}
+            >
+              <Avatar className="h-10 w-10">
+                <AvatarFallback className="bg-primary text-primary-foreground">
+                  <Bot className="h-6 w-6" />
+                </AvatarFallback>
+              </Avatar>
+              <span className="font-semibold text-md">AI Assistant</span>
+            </Button>
 
-          <TabsContent value="ai-chat" className="space-y-4">
-            <AIChat />
-          </TabsContent>
+            {/* The list of user chats */}
+            {friends.map((conn) => {
+              const otherUser = getOtherUser(conn);
+              const conversationId = conn.conversations[0]?.id;
+              
+              if (!conversationId) return null; // Don't show friend if chat room isn't ready
 
-          <TabsContent value="connect" className="space-y-4">
-            {user && <ConnectionRequests user={user} />}
-          </TabsContent>
-
-          <TabsContent value="pending" className="space-y-4">
-            {user && <PendingRequests user={user} />}
-          </TabsContent>
-
-          <TabsContent value="chats" className="space-y-4">
-            {user && <PrivateChats user={user} />}
-          </TabsContent>
-        </Tabs>
-      </main>
-    </div>
+              return (
+                <Button
+                  key={conn.id}
+                  variant="ghost"
+                  className={cn(
+                    "w-full justify-start h-16 gap-3 p-2",
+                    activeChatId === conn.id && "bg-secondary"
+                  )}
+                  onClick={() => onSelectChat({ 
+                    type: "user", 
+                    id: conn.id, 
+                    data: { ...conn, otherUser } // Pass all data to the chat window
+                  })}
+                >
+                  <Avatar className="h-10 w-10">
+                    <AvatarImage src={otherUser.avatar_url || ''} />
+                    <AvatarFallback><UserIcon /></AvatarFallback>
+                  </Avatar>
+                  <span className="font-semibold text-md">{otherUser.username}</span>
+                </Button>
+              );
+            })}
+          </nav>
+        )}
+      </div>
+    </aside>
   );
 };
 
-export default Dashboard;
+export default ChatList;

@@ -8,7 +8,7 @@ import { Loader2, User as UserIcon, LogOut, UserCircle, Users, Bot } from "lucid
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils"; // You need this!
 import type { Tables } from "@/integrations/supabase/types";
-import type { ActiveChat } from "@/pages/Dashboard"; // Import the type from Dashboard
+import type { ActiveChat, ChatConnection } from "@/types/chat";
 
 // Define the types we need
 type Profile = Tables<"profiles">;
