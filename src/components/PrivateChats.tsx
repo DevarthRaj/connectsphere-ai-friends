@@ -148,6 +148,6 @@ const PrivateChats = ({ user }: { user: User }) => {
       </CardContent>
     </Card>
   );
-};
+}; 
 
 export default PrivateChats;
