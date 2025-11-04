@@ -3,85 +3,87 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import { MessageSquare, Video } from "lucide-react";
+import { MessageSquare, Video, Loader2, User as UserIcon } from "lucide-react";
 import ChatWindow from "./ChatWindow";
 import { User } from "@supabase/supabase-js";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
-interface Connection {
-  id: string;
+// This is our new, more robust type that matches the single-query data
+interface FriendConnection {
+  id: string; // The connection ID
+  conversation_id: string | null; // The associated conversation ID
   otherUser: {
     id: string;
     username: string;
+    avatar_url: string | null;
   };
-  conversation_id: string;
 }
 
-const PrivateChats = () => {
-  const [connections, setConnections] = useState<Connection[]>([]);
-  const [selectedChat, setSelectedChat] = useState<Connection | null>(null);
+// FIX #1: We now accept 'user' as a prop
+const PrivateChats = ({ user }: { user: User }) => {
+  const [connections, setConnections] = useState<FriendConnection[]>([]);
+  const [selectedChat, setSelectedChat] = useState<FriendConnection | null>(null);
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
 
-  const fetchConnections = async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      const { data, error } = await supabase
-        .from("connections")
-        .select(`
-          id,
-          requester_id,
-          receiver_id,
-          requester:requester_id (id, username),
-          receiver:receiver_id (id, username)
-        `)
-        .eq("status", "accepted")
-        .or(`requester_id.eq.${user?.id},receiver_id.eq.${user?.id}`);
-
-      if (error) throw error;
-
-      const { data: conversations, error: convError } = await supabase
-        .from("conversations")
-        .select("id, connection_id");
-
-      if (convError) throw convError;
-
-      const connectionsWithConversations = (data || []).map((conn: any) => {
-        const conversation = conversations?.find(c => c.connection_id === conn.id);
-        return {
-          id: conn.id,
-          otherUser: conn.requester_id === user?.id ? conn.receiver : conn.requester,
-          conversation_id: conversation?.id || ""
-        };
-      });
-
-      setConnections(connectionsWithConversations);
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
+    const fetchConnections = async () => {
+      if (!user) return; // Don't run if the user prop isn't ready
+      setLoading(true);
+
+      try {
+        // FIX #2: This is now a single, efficient query
+        const { data, error } = await supabase
+          .from("connections")
+          .select(`
+            id,
+            conversations ( id ), 
+            requester:requester_id (id, username, avatar_url),
+            receiver:receiver_id (id, username, avatar_url)
+          `)
+          .eq("status", "accepted")
+          .or(`requester_id.eq.${user.id},receiver_id.eq.${user.id}`);
+
+        if (error) throw error;
+
+        // Now we format the data on the client side
+        const formattedConnections = (data || []).map((conn: any) => {
+          // The 'conversations' property will be an array, we need the first (and only) item
+          const conversation = conn.conversations[0];
+          return {
+            id: conn.id,
+            otherUser: conn.requester.id === user.id ? conn.receiver : conn.requester,
+            conversation_id: conversation?.id || null,
+          };
+        });
+
+        setConnections(formattedConnections);
+      } catch (error: any) {
+        toast({
+          title: "Error loading chats",
+          description: error.message,
+          variant: "destructive",
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+
     fetchConnections();
-  }, []);
+  }, [user, toast]); // FIX #1: Re-run when the user prop changes
 
   if (loading) {
     return (
       <Card className="shadow-medium">
         <CardContent className="py-8 text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary mx-auto"></div>
+          <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto" />
         </CardContent>
       </Card>
     );
   }
 
-  if (selectedChat) {
+  // The ChatWindow needs a valid conversation_id to work
+  if (selectedChat && selectedChat.conversation_id) {
     return <ChatWindow connection={selectedChat} onBack={() => setSelectedChat(null)} />;
   }
 
@@ -99,21 +101,31 @@ const PrivateChats = () => {
       <CardContent>
         {connections.length === 0 ? (
           <p className="text-center text-muted-foreground py-8">
-            No connections yet. Send connection requests to start chatting!
+            No connections yet. Find people to start chatting!
           </p>
         ) : (
           <div className="space-y-3">
             {connections.map((connection) => (
-              <Card key={connection.id} className="bg-secondary/50 hover:bg-secondary cursor-pointer transition-colors">
+              <Card key={connection.id} className="bg-secondary/50 hover:bg-secondary transition-colors">
                 <CardContent className="pt-6">
                   <div className="flex items-center justify-between">
-                    <div>
+                    <div className="flex items-center gap-3">
+                      <Avatar>
+                        <AvatarImage src={connection.otherUser.avatar_url || ''} />
+                        <AvatarFallback><UserIcon /></AvatarFallback>
+                      </Avatar>
                       <p className="font-semibold">{connection.otherUser.username}</p>
                     </div>
                     <div className="flex gap-2">
                       <Button
                         size="sm"
-                        onClick={() => setSelectedChat(connection)}
+                        onClick={() => {
+                          if (connection.conversation_id) {
+                            setSelectedChat(connection);
+                          } else {
+                            toast({ title: "Error", description: "Conversation not found for this user." });
+                          }
+                        }}
                       >
                         <MessageSquare className="h-4 w-4 mr-1" />
                         Chat
@@ -121,12 +133,7 @@ const PrivateChats = () => {
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => {
-                          toast({
-                            title: "Coming soon!",
-                            description: "Video calling feature is under development.",
-                          });
-                        }}
+                        onClick={() => toast({ title: "Coming soon!", description: "Video calling is under development." })}
                       >
                         <Video className="h-4 w-4 mr-1" />
                         Call
