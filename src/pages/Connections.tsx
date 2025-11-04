@@ -14,10 +14,12 @@ import type { Tables } from "@/integrations/supabase/types";
 
 // Define the types we'll be working with
 type Profile = Tables<"profiles">;
-// We need to create a custom type because our query will join the 'profiles' table
+
+// === FIX #1: We are only selecting parts of the profile, so we'll be specific ===
+// This new type *exactly* matches what our new query will fetch.
 type ConnectionWithProfiles = Tables<"connections"> & {
-  requester: Profile;
-  receiver: Profile;
+  requester: Pick<Profile, "id" | "username" | "avatar_url">;
+  receiver: Pick<Profile, "id" | "username" | "avatar_url">;
 };
 
 const Connections = () => {
@@ -45,27 +47,32 @@ const Connections = () => {
       }
       setUser(session.user);
       
-      // Now, fetch all connections related to this user
+      // === FIX #2: The new, unambiguous .select() query ===
       const { data: connections, error } = await supabase
         .from("connections")
-        .select("*, requester:profiles(*), receiver:profiles(*)")
+        .select(`
+          *,
+          requester:requester_id ( id, username, avatar_url ),
+          receiver:receiver_id ( id, username, avatar_url )
+        `)
         .or(`requester_id.eq.${session.user.id},receiver_id.eq.${session.user.id}`);
 
       if (error) {
+        // Now you'll see the *real* error in the console
+        console.error("Error fetching connections:", error);
         toast({ title: "Error", description: "Failed to load connections.", variant: "destructive" });
       } else if (connections) {
         // Sort the connections into two lists
         const pending: ConnectionWithProfiles[] = [];
-        // === THIS TYPO IS NOW FIXED === //
         const accepted: ConnectionWithProfiles[] = []; 
         
+        // No more 'as any', TypeScript knows the types now.
         connections.forEach(conn => {
-          if (conn.status === 'accepted') {
-            accepted.push(conn as ConnectionWithProfiles);
-          } else if (conn.status === 'pending' && conn.receiver_id === session.user.id) {
-            // Only show pending requests where *I* am the receiver
-            pending.push(conn as ConnectionWithProfiles);
-          }
+        if (conn.status === 'accepted') {
+        accepted.push(conn as unknown as ConnectionWithProfiles);
+        } else if (conn.status === 'pending' && conn.receiver_id === session.user.id) {
+        pending.push(conn as unknown as ConnectionWithProfiles);
+        }
         });
 
         setFriends(accepted);
@@ -134,7 +141,6 @@ const Connections = () => {
 
   // Accept a friend request
   const acceptRequest = async (connectionId: string) => {
-    // === THIS TYPO IS NOW FIXED === //
     const { error } = await supabase
       .from("connections")
       .update({ status: "accepted", updated_at: new Date().toISOString() })
@@ -181,7 +187,7 @@ const Connections = () => {
   }
 
   // Helper to get the *other* person in a connection
-  const getOtherUser = (connection: ConnectionWithProfiles): Profile => {
+  const getOtherUser = (connection: ConnectionWithProfiles): Pick<Profile, "id" | "username" | "avatar_url"> => {
     return connection.requester_id === user.id ? connection.receiver : connection.requester;
   };
 
