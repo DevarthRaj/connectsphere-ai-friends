@@ -6,20 +6,14 @@ import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Loader2, User as UserIcon, LogOut, UserCircle, Users, Bot } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { cn } from "@/lib/utils"; // You need this!
+import { cn } from "@/lib/utils";
+import type { ActiveChat, ChatConnection } from "@/types/chat"; 
 import type { Tables } from "@/integrations/supabase/types";
-import type { ActiveChat, ChatConnection } from "@/types/chat";
 
-// Define the types we need
-type Profile = Tables<"profiles">;
-type ConnectionWithProfiles = Tables<"connections"> & {
-  requester: Pick<Profile, "id" | "username" | "avatar_url">;
-  receiver: Pick<Profile, "id" | "username" | "avatar_url">;
-  conversations: { id: string }[];
-};
+type ConnectionWithProfiles = Omit<ChatConnection, "otherUser">;
 
 interface ChatListProps {
-  user: User;
+  user: User; 
   onSelectChat: (chat: ActiveChat) => void;
   activeChatId: string | null;
 }
@@ -32,6 +26,12 @@ const ChatList = ({ user, onSelectChat, activeChatId }: ChatListProps) => {
 
   useEffect(() => {
     const fetchFriends = async () => {
+      // This guard is from our previous fix and is still correct
+      if (!user) {
+        setLoading(false); 
+        return;
+      }
+      
       setLoading(true);
       const { data, error } = await supabase
         .from("connections")
@@ -43,7 +43,7 @@ const ChatList = ({ user, onSelectChat, activeChatId }: ChatListProps) => {
           conversations ( id )
         `)
         .eq("status", "accepted")
-        .or(`requester_id.eq.${user.id},receiver_id.eq.${user.id}`);
+        .or(`requester_id.eq.${user.id},receiver_id.eq.${user.id}`); 
 
       if (error) {
         console.error("Error fetching friends:", error);
@@ -53,8 +53,9 @@ const ChatList = ({ user, onSelectChat, activeChatId }: ChatListProps) => {
       }
       setLoading(false);
     };
+
     fetchFriends();
-  }, [user.id, toast]);
+  }, [user, toast]);
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
@@ -67,7 +68,6 @@ const ChatList = ({ user, onSelectChat, activeChatId }: ChatListProps) => {
 
   return (
     <aside className="w-full md:w-1/3 lg:w-1/4 h-full flex flex-col bg-card border-r">
-      {/* Header for the Sidebar */}
       <header className="p-4 border-b">
         <div className="flex justify-between items-center">
           <h1 className="text-xl font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
@@ -85,10 +85,8 @@ const ChatList = ({ user, onSelectChat, activeChatId }: ChatListProps) => {
             </Button>
           </div>
         </div>
-        {/* You could add a chat search bar here */}
       </header>
 
-      {/* Chat List */}
       <div className="flex-1 overflow-y-auto">
         {loading ? (
           <div className="flex items-center justify-center h-full">
@@ -96,7 +94,6 @@ const ChatList = ({ user, onSelectChat, activeChatId }: ChatListProps) => {
           </div>
         ) : (
           <nav className="p-2 space-y-1">
-            {/* The "Perfect Place": A pinned AI chat contact */}
             <Button
               variant="ghost"
               className={cn(
@@ -113,12 +110,21 @@ const ChatList = ({ user, onSelectChat, activeChatId }: ChatListProps) => {
               <span className="font-semibold text-md">AI Assistant</span>
             </Button>
 
-            {/* The list of user chats */}
             {friends.map((conn) => {
               const otherUser = getOtherUser(conn);
-              const conversationId = conn.conversations[0]?.id;
               
-              if (!conversationId) return null; // Don't show friend if chat room isn't ready
+              // === THIS IS THE FIX ===
+              // We now safely check if 'conn.conversations' is an array AND has an item
+              const conversationId = (conn.conversations && conn.conversations.length > 0)
+                ? conn.conversations[0].id
+                : null;
+              // ========================
+              
+              if (!conversationId) {
+                // This will gracefully hide any friend for whom the chat room isn't ready yet.
+                // It will appear on the next page load.
+                return null; 
+              }
 
               return (
                 <Button
@@ -131,7 +137,7 @@ const ChatList = ({ user, onSelectChat, activeChatId }: ChatListProps) => {
                   onClick={() => onSelectChat({ 
                     type: "user", 
                     id: conn.id, 
-                    data: { ...conn, otherUser } // Pass all data to the chat window
+                    data: { ...conn, otherUser }
                   })}
                 >
                   <Avatar className="h-10 w-10">
