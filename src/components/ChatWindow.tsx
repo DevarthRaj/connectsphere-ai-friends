@@ -1,79 +1,84 @@
-import { useState, useEffect, useRef } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useEffect, useState, useRef } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { User } from "@supabase/supabase-js";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { supabase } from "@/integrations/supabase/client";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Loader2, User as UserIcon, Send, Video } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Send } from "lucide-react";
+import type { Tables } from "@/integrations/supabase/types";
 
-interface Message {
-  id: string;
-  content: string;
-  sender_id: string;
-  created_at: string;
-}
+// Define the types we need
+type Message = Tables<"messages">;
+type Profile = Tables<"profiles">;
+type ConnectionWithProfiles = Tables<"connections"> & {
+  requester: Pick<Profile, "id" | "username" | "avatar_url">;
+  receiver: Pick<Profile, "id" | "username" | "avatar_url">;
+  conversations: { id: string }[];
+  otherUser: Pick<Profile, "id" | "username" | "avatar_url">;
+};
 
 interface ChatWindowProps {
-  connection: {
-    id: string;
-    otherUser: {
-      id: string;
-      username: string;
-    };
-    conversation_id: string;
-  };
-  onBack: () => void;
+  user: User;
+  connection: ConnectionWithProfiles;
 }
 
-const ChatWindow = ({ connection, onBack }: ChatWindowProps) => {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState("");
-  const [currentUserId, setCurrentUserId] = useState("");
-  const scrollRef = useRef<HTMLDivElement>(null);
+const ChatWindow = ({ user, connection }: ChatWindowProps) => {
   const { toast } = useToast();
+  const [loading, setLoading] = useState(true);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [newMessage, setNewMessage] = useState("");
+  
+  const conversationId = connection.conversations[0]?.id;
+  const otherUser = connection.otherUser;
+  
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  // 1. Fetch historical messages
   useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      setCurrentUserId(user?.id || "");
-    });
-  }, []);
-
-  useEffect(() => {
-    if (!connection.conversation_id) return;
-
     const fetchMessages = async () => {
-      const { data, error } = await supabase
+      if (!conversationId) {
+        setLoading(false);
+        return;
+      }
+      setLoading(true);
+      
+      const { data, error }= await supabase
         .from("messages")
         .select("*")
-        .eq("conversation_id", connection.conversation_id)
+        .eq("conversation_id", conversationId)
         .order("created_at", { ascending: true });
 
       if (error) {
-        toast({
-          title: "Error",
-          description: error.message,
-          variant: "destructive",
-        });
+        toast({ title: "Error", description: "Failed to load messages.", variant: "destructive" });
       } else {
-        setMessages(data || []);
+        setMessages(data);
       }
+      setLoading(false);
     };
-
     fetchMessages();
+  }, [conversationId, toast]);
+
+  // 2. Listen for NEW messages
+  useEffect(() => {
+    if (!conversationId) return;
 
     const channel = supabase
-      .channel(`messages:${connection.conversation_id}`)
+      .channel(`chat_room_${conversationId}`)
       .on(
         "postgres_changes",
         {
           event: "INSERT",
           schema: "public",
           table: "messages",
-          filter: `conversation_id=eq.${connection.conversation_id}`,
+          filter: `conversation_id=eq.${conversationId}`
         },
         (payload) => {
-          setMessages((prev) => [...prev, payload.new as Message]);
+          setMessages((currentMessages) => [...currentMessages, payload.new as Message]);
         }
       )
       .subscribe();
@@ -81,84 +86,110 @@ const ChatWindow = ({ connection, onBack }: ChatWindowProps) => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [connection.conversation_id]);
+  }, [conversationId]);
 
+  // 3. Scroll to bottom
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
+    scrollToBottom();
   }, [messages]);
 
-  const sendMessage = async () => {
-    if (!input.trim() || !connection.conversation_id) return;
+  // 4. Handle send
+  const handleSend = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newMessage.trim() || !user || !conversationId) return;
 
-    try {
-      const { error } = await supabase.from("messages").insert({
-        conversation_id: connection.conversation_id,
-        sender_id: currentUserId,
-        content: input.trim(),
+    const content = newMessage.trim();
+    setNewMessage("");
+
+    const { error } = await supabase
+      .from("messages")
+      .insert({
+        content: content,
+        sender_id: user.id,
+        conversation_id: conversationId,
       });
 
-      if (error) throw error;
-      setInput("");
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
-      });
+    if (error) {
+      toast({ title: "Error", description: "Message failed to send.", variant: "destructive" });
+      setNewMessage(content); // Put the failed message back
     }
   };
 
+  if (loading) {
+    return (
+      <div className="h-full flex items-center justify-center">
+        <Loader2 className="h-12 w-12 animate-spin text-primary" />
+      </div>
+    );
+  }
+  
+  if (!conversationId) {
+    return (
+      <div className="h-full flex items-center justify-center">
+        <p className="text-muted-foreground">Error: This connection has no chat room.</p>
+      </div>
+    );
+  }
+
   return (
-    <Card className="shadow-medium">
-      <CardHeader className="bg-gradient-to-r from-primary/10 to-accent/10">
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" onClick={onBack}>
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <CardTitle>{connection.otherUser.username}</CardTitle>
-        </div>
-      </CardHeader>
-      <CardContent className="p-0">
-        <ScrollArea ref={scrollRef} className="h-[500px] p-4">
-          <div className="space-y-4">
-            {messages.map((message) => (
-              <div
-                key={message.id}
-                className={`flex ${
-                  message.sender_id === currentUserId ? "justify-end" : "justify-start"
-                }`}
-              >
-                <div
-                  className={`max-w-[70%] rounded-lg p-3 ${
-                    message.sender_id === currentUserId
-                      ? "bg-gradient-to-r from-primary to-accent text-primary-foreground"
-                      : "bg-secondary text-secondary-foreground"
-                  }`}
-                >
-                  <p>{message.content}</p>
-                  <p className="text-xs opacity-70 mt-1">
-                    {new Date(message.created_at).toLocaleTimeString()}
-                  </p>
-                </div>
-              </div>
-            ))}
+    <div className="h-full flex flex-col">
+      <header className="border-b bg-card p-4">
+        <div className="flex justify-between items-center">
+          <div className="flex items-center gap-4">
+            <Avatar>
+              <AvatarImage src={otherUser.avatar_url || ''} />
+              <AvatarFallback><UserIcon /></AvatarFallback>
+            </Avatar>
+            <h1 className="text-xl font-bold">{otherUser.username}</h1>
           </div>
-        </ScrollArea>
-        <div className="border-t p-4 flex gap-2">
-          <Input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyPress={(e) => e.key === "Enter" && sendMessage()}
+          <Button variant="ghost" size="icon" onClick={() => toast({ title: "Coming soon!"})}>
+            <Video className="h-5 w-5" />
+          </Button>
+        </div>
+      </header>
+
+      <main className="flex-1 overflow-y-auto p-4 space-y-4">
+        {messages.map((msg) => (
+          <div
+            key={msg.id}
+            className={`flex items-end gap-2 ${
+              msg.sender_id === user.id ? "justify-end" : "justify-start"
+            }`}
+          >
+            {msg.sender_id !== user.id && (
+              <Avatar className="h-8 w-8">
+                <AvatarImage src={otherUser.avatar_url || ''} />
+                <AvatarFallback><UserIcon className="h-4 w-4" /></AvatarFallback>
+              </Avatar>
+            )}
+            <div
+              className={`max-w-xs md:max-w-md p-3 rounded-lg ${
+                msg.sender_id === user.id
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-secondary"
+              }`}
+            >
+              <p>{msg.content}</p>
+            </div>
+          </div>
+        ))}
+        <div ref={messagesEndRef} />
+      </main>
+
+      <footer className="p-4 border-t bg-card">
+        <form onSubmit={handleSend} className="flex gap-2">
+          <Input 
+            value={newMessage}
+            onChange={(e) => setNewMessage(e.target.value)}
             placeholder="Type a message..."
+            autoComplete="off"
           />
-          <Button onClick={sendMessage} disabled={!input.trim()}>
+          <Button type="submit" disabled={!newMessage.trim()}>
             <Send className="h-4 w-4" />
           </Button>
-        </div>
-      </CardContent>
-    </Card>
+        </form>
+      </footer>
+    </div>
   );
 };
 
