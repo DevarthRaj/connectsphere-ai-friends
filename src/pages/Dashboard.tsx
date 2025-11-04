@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { User } from "@supabase/supabase-js";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import { LogOut, UserCircle } from "lucide-react";
+import { LogOut, UserCircle, Users } from "lucide-react"; // Import the 'Users' icon
 import AIChat from "@/components/AIChat";
 import ConnectionRequests from "@/components/ConnectionRequests";
 import PendingRequests from "@/components/PendingRequests";
@@ -55,6 +55,13 @@ const Dashboard = () => {
             ConnectSphere
           </h1>
           <div className="flex gap-2">
+            
+            {/* THIS IS THE NEW BUTTON */}
+            <Button variant="outline" onClick={() => navigate("/connections")}>
+              <Users className="mr-2 h-4 w-4" />
+              Connections
+            </Button>
+
             <Button variant="outline" onClick={() => navigate("/profile")}>
               <UserCircle className="mr-2 h-4 w-4" />
               Profile
@@ -68,6 +75,7 @@ const Dashboard = () => {
       </header>
 
       <main className="container mx-auto px-4 py-8">
+        {/* The rest of your dashboard with the tabs remains the same */}
         <Tabs defaultValue="ai-chat" className="w-full">
           <TabsList className="grid w-full grid-cols-4 mb-8">
             <TabsTrigger value="ai-chat">AI Assistant</TabsTrigger>
@@ -81,15 +89,15 @@ const Dashboard = () => {
           </TabsContent>
 
           <TabsContent value="connect" className="space-y-4">
-            <ConnectionRequests />
+            {user && <ConnectionRequests user={user} />}
           </TabsContent>
 
           <TabsContent value="pending" className="space-y-4">
-            <PendingRequests />
+            {user && <PendingRequests user={user} />}
           </TabsContent>
 
           <TabsContent value="chats" className="space-y-4">
-            <PrivateChats />
+            {user && <PrivateChats user={user} />}
           </TabsContent>
         </Tabs>
       </main>
