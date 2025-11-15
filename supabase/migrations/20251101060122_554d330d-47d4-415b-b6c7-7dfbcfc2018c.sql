@@ -180,3 +180,29 @@ ADD CONSTRAINT bio_length CHECK (
   bio IS NULL OR 
   char_length(bio) <= 500
 );
+
+
+-- 1. Create a function that runs on a new/updated connection
+CREATE OR REPLACE FUNCTION public.create_conversation_on_accept()
+RETURNS TRIGGER AS $$
+BEGIN
+  -- Check if the status is being updated to 'accepted'
+  -- AND that it wasn't 'accepted' before (to prevent duplicates)
+  IF NEW.status = 'accepted' AND OLD.status != 'accepted' THEN
+    
+    -- Create a new conversation linked to this connection
+    INSERT INTO public.conversations (connection_id)
+    VALUES (NEW.id);
+  
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 2. Create a trigger that *runs* the function
+-- This tells the 'connections' table to run our function
+-- AFTER any row is UPDATED.
+CREATE TRIGGER on_connection_accepted
+  AFTER UPDATE ON public.connections
+  FOR EACH ROW
+  EXECUTE FUNCTION public.create_conversation_on_accept();

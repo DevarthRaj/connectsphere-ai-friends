@@ -29,6 +29,8 @@ const AIChat = () => {
     }
   }, [messages]);
 
+// PASTE THIS into your AIChat.tsx, replacing the old sendMessage function
+
   const sendMessage = async () => {
     if (!input.trim() || isLoading) return;
 
@@ -38,16 +40,22 @@ const AIChat = () => {
     setIsLoading(true);
 
     try {
+      // Make sure this variable name matches your .env file!
+      const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY; 
+
       const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-chat`,
+        // 1. This is the correct function name
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/gemini-chat`,
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+            // 2. These headers are required to call an Edge Function
+            "Authorization": `Bearer ${anonKey}`,
+            "apikey": anonKey
           },
           body: JSON.stringify({
-            messages: [...messages, userMessage]
+            messages: [...messages, userMessage] // Send the history
           }),
         }
       );
@@ -57,46 +65,23 @@ const AIChat = () => {
         throw new Error(errorData.error || "Failed to get response");
       }
 
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error("No response body");
+      // NO STREAMING NEEDED! Just get the simple JSON response.
+      const data = await response.json();
 
-      const decoder = new TextDecoder();
-      let assistantMessage = "";
-      
-      setMessages(prev => [...prev, { role: "assistant", content: "" }]);
+      const assistantMessage: Message = {
+        role: "assistant",
+        content: data.response, // 'data.response' is what we named it in our function
+      };
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+      setMessages(prev => [...prev, assistantMessage]);
 
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split("\n");
-
-        for (const line of lines) {
-          if (!line.startsWith("data: ") || line === "data: [DONE]") continue;
-          
-          try {
-            const data = JSON.parse(line.slice(6));
-            const content = data.choices?.[0]?.delta?.content;
-            if (content) {
-              assistantMessage += content;
-              setMessages(prev => {
-                const newMessages = [...prev];
-                newMessages[newMessages.length - 1].content = assistantMessage;
-                return newMessages;
-              });
-            }
-          } catch (e) {
-            console.error("Error parsing chunk:", e);
-          }
-        }
-      }
     } catch (error: any) {
       toast({
         title: "Error",
         description: error.message || "Failed to send message",
         variant: "destructive",
       });
+      // Roll back the user's message if the API call fails
       setMessages(prev => prev.slice(0, -1));
     } finally {
       setIsLoading(false);
