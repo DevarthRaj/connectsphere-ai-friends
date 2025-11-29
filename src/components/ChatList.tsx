@@ -1,14 +1,16 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+// FIX: Use relative path here too to match NewChatDialog strategy
+import { supabase } from "../integrations/supabase/client";
 import { User } from "@supabase/supabase-js";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Loader2, User as UserIcon, LogOut, UserCircle, Users, Bot } from "lucide-react";
+import { Loader2, LogOut, UserCircle, Users, Bot, Plus } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import type { ActiveChat, ChatConnection } from "@/types/chat"; 
-import type { Tables } from "@/integrations/supabase/types";
+// Relative import for the sibling component
+import NewChatDialog from "./NewChatDialog";
 
 type ConnectionWithProfiles = Omit<ChatConnection, "otherUser">;
 
@@ -21,12 +23,12 @@ interface ChatListProps {
 const ChatList = ({ user, onSelectChat, activeChatId }: ChatListProps) => {
   const [loading, setLoading] = useState(true);
   const [friends, setFriends] = useState<ConnectionWithProfiles[]>([]);
+  const [isNewChatOpen, setIsNewChatOpen] = useState(false);
   const { toast } = useToast();
   const navigate = useNavigate();
 
   useEffect(() => {
     const fetchFriends = async () => {
-      // This guard is from our previous fix and is still correct
       if (!user) {
         setLoading(false); 
         return;
@@ -55,6 +57,20 @@ const ChatList = ({ user, onSelectChat, activeChatId }: ChatListProps) => {
     };
 
     fetchFriends();
+    
+    // Set up realtime subscription for updates
+    const channel = supabase
+      .channel('chat_list_updates')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'connections' },
+        () => fetchFriends()
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [user, toast]);
 
   const handleSignOut = async () => {
@@ -67,7 +83,7 @@ const ChatList = ({ user, onSelectChat, activeChatId }: ChatListProps) => {
   };
 
   return (
-    <aside className="w-full md:w-1/3 lg:w-1/4 h-full flex flex-col bg-card border-r">
+    <aside className="w-full md:w-1/3 lg:w-1/4 h-full flex flex-col bg-card border-r relative">
       <header className="p-4 border-b">
         <div className="flex justify-between items-center">
           <h1 className="text-xl font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
@@ -113,16 +129,11 @@ const ChatList = ({ user, onSelectChat, activeChatId }: ChatListProps) => {
             {friends.map((conn) => {
               const otherUser = getOtherUser(conn);
               
-              // === THIS IS THE FIX ===
-              // We now safely check if 'conn.conversations' is an array AND has an item
               const conversationId = (conn.conversations && conn.conversations.length > 0)
                 ? conn.conversations[0].id
                 : null;
-              // ========================
               
               if (!conversationId) {
-                // This will gracefully hide any friend for whom the chat room isn't ready yet.
-                // It will appear on the next page load.
                 return null; 
               }
 
@@ -142,7 +153,7 @@ const ChatList = ({ user, onSelectChat, activeChatId }: ChatListProps) => {
                 >
                   <Avatar className="h-10 w-10">
                     <AvatarImage src={otherUser.avatar_url || ''} />
-                    <AvatarFallback><UserIcon /></AvatarFallback>
+                    <AvatarFallback/>
                   </Avatar>
                   <span className="font-semibold text-md">{otherUser.username}</span>
                 </Button>
@@ -151,6 +162,31 @@ const ChatList = ({ user, onSelectChat, activeChatId }: ChatListProps) => {
           </nav>
         )}
       </div>
+
+      <div className="absolute bottom-6 right-6">
+        <Button
+          size="icon"
+          className="h-14 w-14 rounded-full shadow-xl bg-primary hover:bg-primary/90 transition-all hover:scale-105"
+          onClick={() => setIsNewChatOpen(true)}
+        >
+          <Plus className="h-6 w-6" />
+        </Button>
+      </div>
+
+      <NewChatDialog 
+        open={isNewChatOpen} 
+        onOpenChange={setIsNewChatOpen}
+        currentUser={user}
+        onSelectFriend={(conn) => {
+          const otherUser = conn.requester_id === user.id ? conn.receiver : conn.requester;
+          
+          onSelectChat({ 
+            type: "user", 
+            data: { ...conn, otherUser }, 
+            id: conn.id 
+          });
+        }}
+      />
     </aside>
   );
 };
