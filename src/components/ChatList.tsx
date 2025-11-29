@@ -1,16 +1,20 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-// FIX: Use relative path here too to match NewChatDialog strategy
-import { supabase } from "../integrations/supabase/client";
-import { User } from "@supabase/supabase-js";
+// Use local client initialization to avoid path resolution errors
+import { User, createClient } from "@supabase/supabase-js";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Loader2, LogOut, UserCircle, Users, Bot, Plus } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import type { ActiveChat, ChatConnection } from "@/types/chat"; 
-// Relative import for the sibling component
+// Import relative to current file
 import NewChatDialog from "./NewChatDialog";
+
+const supabase = createClient(
+  import.meta.env.VITE_SUPABASE_URL,
+  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY
+);
 
 type ConnectionWithProfiles = Omit<ChatConnection, "otherUser">;
 
@@ -129,14 +133,8 @@ const ChatList = ({ user, onSelectChat, activeChatId }: ChatListProps) => {
             {friends.map((conn) => {
               const otherUser = getOtherUser(conn);
               
-              const conversationId = (conn.conversations && conn.conversations.length > 0)
-                ? conn.conversations[0].id
-                : null;
+              // We removed the conversationId check so friends appear immediately
               
-              if (!conversationId) {
-                return null; 
-              }
-
               return (
                 <Button
                   key={conn.id}
