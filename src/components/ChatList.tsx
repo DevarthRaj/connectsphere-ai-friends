@@ -4,22 +4,145 @@ import { useNavigate } from "react-router-dom";
 import { User, createClient } from "@supabase/supabase-js";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Loader2, LogOut, UserCircle, Users, Bot, Plus } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { 
+  Loader2, 
+  LogOut, 
+  UserCircle, 
+  Users, 
+  Bot, 
+  Plus, 
+  Search, 
+  User as UserIcon 
+} from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import type { ActiveChat, ChatConnection } from "@/types/chat"; 
-// Import relative to current file
-import NewChatDialog from "./NewChatDialog";
 
+// Initialize Supabase client
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
   import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY
 );
 
+// --- INTERNAL COMPONENT: NewChatDialog ---
+interface NewChatDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSelectFriend: (connection: any) => void;
+  currentUser: any; 
+}
+
+const NewChatDialog = ({ open, onOpenChange, onSelectFriend, currentUser }: NewChatDialogProps) => {
+  const [friends, setFriends] = useState<any[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    if (open && currentUser) {
+      fetchFriends();
+    }
+  }, [open, currentUser]);
+
+  const fetchFriends = async () => {
+    setIsLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('connections')
+        .select(`
+          *,
+          requester:requester_id(id, username, avatar_url),
+          receiver:receiver_id(id, username, avatar_url)
+        `)
+        .eq('status', 'accepted')
+        .or(`requester_id.eq.${currentUser.id},receiver_id.eq.${currentUser.id}`);
+
+      if (error) throw error;
+      setFriends(data || []);
+    } catch (error) {
+      console.error("Error fetching friends:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const filteredFriends = friends.filter((friend) => {
+    const friendProfile = friend.requester_id === currentUser.id 
+      ? friend.receiver 
+      : friend.requester;
+    
+    const username = friendProfile?.username || "";
+    return username.toLowerCase().includes(searchQuery.toLowerCase());
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[425px]">
+        <DialogHeader>
+          <DialogTitle>Select a Friend</DialogTitle>
+        </DialogHeader>
+        
+        <div className="relative mt-2">
+          <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search friends..."
+            className="pl-8"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+        </div>
+
+        <ScrollArea className="h-[300px] mt-4">
+          <div className="space-y-2">
+            {isLoading ? (
+              <div className="text-center text-sm text-muted-foreground p-4">Loading friends...</div>
+            ) : filteredFriends.length === 0 ? (
+              <div className="text-center text-sm text-muted-foreground p-4">
+                {searchQuery ? "No friends found matching search." : "No friends found. Go to 'Connections' to add people!"}
+              </div>
+            ) : (
+              filteredFriends.map((connection) => {
+                const isRequester = connection.requester_id === currentUser.id;
+                const friendProfile = isRequester ? connection.receiver : connection.requester;
+
+                return (
+                  <button
+                    key={connection.id}
+                    onClick={() => {
+                      onSelectFriend(connection);
+                      onOpenChange(false);
+                    }}
+                    className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-accent transition-colors text-left"
+                  >
+                    <Avatar>
+                      <AvatarImage src={friendProfile?.avatar_url} />
+                      <AvatarFallback>
+                        {friendProfile?.username?.slice(0, 2).toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1 overflow-hidden">
+                      <h4 className="font-medium truncate">{friendProfile?.username}</h4>
+                      <p className="text-xs text-muted-foreground">Click to start chatting</p>
+                    </div>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </ScrollArea>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
+// --- MAIN COMPONENT: ChatList ---
+
 type ConnectionWithProfiles = Omit<ChatConnection, "otherUser">;
 
 interface ChatListProps {
-  user: User; 
+  user: any; 
   onSelectChat: (chat: ActiveChat) => void;
   activeChatId: string | null;
 }
@@ -32,37 +155,8 @@ const ChatList = ({ user, onSelectChat, activeChatId }: ChatListProps) => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    const fetchFriends = async () => {
-      if (!user) {
-        setLoading(false); 
-        return;
-      }
-      
-      setLoading(true);
-      const { data, error } = await supabase
-        .from("connections")
-        .select(`
-          id,
-          status,
-          requester:requester_id (id, username, avatar_url),
-          receiver:receiver_id (id, username, avatar_url),
-          conversations ( id )
-        `)
-        .eq("status", "accepted")
-        .or(`requester_id.eq.${user.id},receiver_id.eq.${user.id}`); 
-
-      if (error) {
-        console.error("Error fetching friends:", error);
-        toast({ title: "Error", description: "Failed to load friends list.", variant: "destructive" });
-      } else {
-        setFriends(data as unknown as ConnectionWithProfiles[]);
-      }
-      setLoading(false);
-    };
-
     fetchFriends();
     
-    // Set up realtime subscription for updates
     const channel = supabase
       .channel('chat_list_updates')
       .on(
@@ -75,7 +169,35 @@ const ChatList = ({ user, onSelectChat, activeChatId }: ChatListProps) => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user, toast]);
+  }, [user]);
+
+  const fetchFriends = async () => {
+    if (!user) {
+      setLoading(false); 
+      return;
+    }
+    
+    setLoading(true);
+    const { data, error } = await supabase
+      .from("connections")
+      .select(`
+        id,
+        status,
+        requester:requester_id (id, username, avatar_url),
+        receiver:receiver_id (id, username, avatar_url),
+        conversations ( id )
+      `)
+      .eq("status", "accepted")
+      .or(`requester_id.eq.${user.id},receiver_id.eq.${user.id}`); 
+
+    if (error) {
+      console.error("Error fetching friends:", error);
+      toast({ title: "Error", description: "Failed to load friends list.", variant: "destructive" });
+    } else {
+      setFriends(data as unknown as ConnectionWithProfiles[]);
+    }
+    setLoading(false);
+  };
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
@@ -84,6 +206,64 @@ const ChatList = ({ user, onSelectChat, activeChatId }: ChatListProps) => {
 
   const getOtherUser = (conn: ConnectionWithProfiles) => {
     return conn.requester.id === user.id ? conn.receiver : conn.requester;
+  };
+
+  // --- UPDATED SELF-HEALING CHAT STARTER ---
+  const handleStartChat = async (conn: any) => {
+    const otherUser = conn.requester_id === user.id ? conn.receiver : conn.requester;
+    let conversationId = conn.conversations?.[0]?.id;
+
+    if (!conversationId) {
+      // No chat room locally? Check database or create one.
+      try {
+        const { data, error } = await supabase
+          .from('conversations')
+          .insert({ connection_id: conn.id })
+          .select()
+          .single();
+        
+        if (error) {
+          // If we get error 23505, it means the row ALREADY exists!
+          // We should just fetch it and use it.
+          if (error.code === '23505') {
+            console.log("Conversation already exists (duplicate key), fetching existing ID...");
+            
+            const { data: existingData, error: fetchError } = await supabase
+              .from('conversations')
+              .select('id')
+              .eq('connection_id', conn.id)
+              .single();
+              
+            if (fetchError || !existingData) {
+               console.error("Critical error: Could not fetch existing chat", fetchError);
+               throw fetchError;
+            }
+            conversationId = existingData.id;
+          } else {
+            throw error;
+          }
+        } else if (data) {
+          conversationId = data.id;
+        }
+        
+        fetchFriends(); 
+      } catch (err) {
+        console.error("Failed to prepare chat:", err);
+        toast({ title: "Error", description: "Could not start chat.", variant: "destructive" });
+        return;
+      }
+    }
+
+    const updatedConnection = {
+      ...conn,
+      conversations: [{ id: conversationId }]
+    };
+
+    onSelectChat({ 
+      type: "user", 
+      id: conn.id, 
+      data: { ...updatedConnection, otherUser } 
+    });
   };
 
   return (
@@ -133,8 +313,6 @@ const ChatList = ({ user, onSelectChat, activeChatId }: ChatListProps) => {
             {friends.map((conn) => {
               const otherUser = getOtherUser(conn);
               
-              // We removed the conversationId check so friends appear immediately
-              
               return (
                 <Button
                   key={conn.id}
@@ -143,20 +321,29 @@ const ChatList = ({ user, onSelectChat, activeChatId }: ChatListProps) => {
                     "w-full justify-start h-16 gap-3 p-2",
                     activeChatId === conn.id && "bg-secondary"
                   )}
-                  onClick={() => onSelectChat({ 
-                    type: "user", 
-                    id: conn.id, 
-                    data: { ...conn, otherUser }
-                  })}
+                  onClick={() => handleStartChat(conn)}
                 >
                   <Avatar className="h-10 w-10">
                     <AvatarImage src={otherUser.avatar_url || ''} />
-                    <AvatarFallback/>
+                    <AvatarFallback><UserIcon /></AvatarFallback>
                   </Avatar>
-                  <span className="font-semibold text-md">{otherUser.username}</span>
+                  <div className="flex flex-col items-start overflow-hidden">
+                    <span className="font-semibold text-md truncate w-full text-left">
+                      {otherUser.username}
+                    </span>
+                    <span className="text-xs text-muted-foreground truncate w-full text-left">
+                      Click to chat
+                    </span>
+                  </div>
                 </Button>
               );
             })}
+            
+            {friends.length === 0 && (
+              <div className="text-center p-4 text-muted-foreground text-sm">
+                No friends yet. Click the + button to add some!
+              </div>
+            )}
           </nav>
         )}
       </div>
@@ -176,13 +363,8 @@ const ChatList = ({ user, onSelectChat, activeChatId }: ChatListProps) => {
         onOpenChange={setIsNewChatOpen}
         currentUser={user}
         onSelectFriend={(conn) => {
-          const otherUser = conn.requester_id === user.id ? conn.receiver : conn.requester;
-          
-          onSelectChat({ 
-            type: "user", 
-            data: { ...conn, otherUser }, 
-            id: conn.id 
-          });
+          handleStartChat(conn);
+          setIsNewChatOpen(false);
         }}
       />
     </aside>
