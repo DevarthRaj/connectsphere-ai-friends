@@ -99,5 +99,28 @@ All colors MUST be HSL.
 
   body {
     @apply bg-background text-foreground;
+    /* DEEP GLASS EFFECT: 
+       We override the flat background color with a rich, fixed gradient.
+       This gives the transparent glass panels something to blur over.
+    */
+    background: radial-gradient(circle at top left, #1a1a2e, #16213e, #0f3460);
+    background-attachment: fixed;
+    background-size: cover;
+    font-feature-settings: "rlig" 1, "calt" 1;
   }
+}
+
+/* Custom Scrollbar for Glass Look */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
 }
