@@ -3,6 +3,7 @@ name: Build and Push Docker Image
 on:
   push:
     branches: [ "main" ]
+    # This ensures it runs whenever you push to the 'main' branch
 
 jobs:
   build:
@@ -24,6 +25,8 @@ jobs:
           context: .
           push: true
           tags: devarthraj/connectsphere:latest
+          # We are using 'latest' tag so it always updates the main image
+          # You can also add specific version tags if you want
           build-args: |
             VITE_SUPABASE_URL=${{ secrets.VITE_SUPABASE_URL }}
-            VITE_SUPABASE_ANON_KEY=${{ secrets.VITE_SUPABASE_ANON_KEY }}
+            VITE_SUPABASE_PUBLISHABLE_KEY=${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
