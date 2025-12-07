@@ -1,13 +1,22 @@
 name: Deploy to AWS
 
 on:
-  push:
-    branches:
-      - main  # Or 'master', depending on your branch name
+  # Trigger 1: Run automatically when the "Build" workflow finishes successfully
+  workflow_run:
+    workflows: ["Build and Push Docker Image"] # <--- MUST MATCH YOUR BUILD WORKFLOW NAME
+    branches: [main]
+    types: 
+      - completed
+      
+  # Trigger 2: Allow manual button clicks (This adds the button you couldn't find!)
+  workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    # Only run if the trigger was a manual click OR if the build was successful
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }} 
+    
     steps:
       - name: Deploy to EC2 via SSH
         uses: appleboy/ssh-action@master
@@ -16,16 +25,8 @@ jobs:
           username: ${{ secrets.EC2_USERNAME }}
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
-            # 1. Pull the new image
             sudo docker pull devarthraj/connectsphere:latest
-            
-            # 2. Stop and remove the old container (|| true prevents error if it's not running)
             sudo docker stop connectsphere-app || true
             sudo docker rm connectsphere-app || true
-            
-            # 3. Run the new container
-            # We give it a --name so it's easier to find next time
             sudo docker run -d --name connectsphere-app -p 80:80 devarthraj/connectsphere:latest
-            
-            # 4. THE 11-MONTH FIX: Clean up old images to save disk space
             sudo docker system prune -af
