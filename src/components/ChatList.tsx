@@ -27,7 +27,7 @@ const supabase = createClient(
   import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY
 );
 
-// --- INTERNAL COMPONENT: NewChatDialog ---
+// --- INTERNAL COMPONENT: NewChatDialog (Deep Glass Style) ---
 interface NewChatDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -54,7 +54,8 @@ const NewChatDialog = ({ open, onOpenChange, onSelectFriend, currentUser }: NewC
         .select(`
           *,
           requester:requester_id(id, username, avatar_url),
-          receiver:receiver_id(id, username, avatar_url)
+          receiver:receiver_id(id, username, avatar_url),
+          conversations(id)
         `)
         .eq('status', 'accepted')
         .or(`requester_id.eq.${currentUser.id},receiver_id.eq.${currentUser.id}`);
@@ -79,28 +80,29 @@ const NewChatDialog = ({ open, onOpenChange, onSelectFriend, currentUser }: NewC
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[425px]">
+      {/* Glass Dialog Content */}
+      <DialogContent className="sm:max-w-[425px] bg-[#1a1a2e]/90 border-white/10 text-white backdrop-blur-xl shadow-2xl">
         <DialogHeader>
-          <DialogTitle>Select a Friend</DialogTitle>
+          <DialogTitle className="text-white">Select a Friend</DialogTitle>
         </DialogHeader>
         
         <div className="relative mt-2">
-          <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Search className="absolute left-2 top-2.5 h-4 w-4 text-white/50" />
           <Input
             placeholder="Search friends..."
-            className="pl-8"
+            className="pl-8 bg-white/5 border-white/10 text-white placeholder:text-white/30 focus-visible:ring-purple-500 focus-visible:border-purple-500"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
         </div>
 
-        <ScrollArea className="h-[300px] mt-4">
+        <ScrollArea className="h-[300px] mt-4 pr-4">
           <div className="space-y-2">
             {isLoading ? (
-              <div className="text-center text-sm text-muted-foreground p-4">Loading friends...</div>
+              <div className="text-center text-sm text-white/50 p-4">Loading friends...</div>
             ) : filteredFriends.length === 0 ? (
-              <div className="text-center text-sm text-muted-foreground p-4">
-                {searchQuery ? "No friends found matching search." : "No friends found. Go to 'Connections' to add people!"}
+              <div className="text-center text-sm text-white/50 p-4">
+                {searchQuery ? "No friends found." : "No friends yet. Go to 'Connections' to add people!"}
               </div>
             ) : (
               filteredFriends.map((connection) => {
@@ -114,17 +116,19 @@ const NewChatDialog = ({ open, onOpenChange, onSelectFriend, currentUser }: NewC
                       onSelectFriend(connection);
                       onOpenChange(false);
                     }}
-                    className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-accent transition-colors text-left"
+                    className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-white/10 transition-colors text-left group"
                   >
-                    <Avatar>
+                    <Avatar className="border border-white/10 group-hover:border-purple-500/50 transition-colors">
                       <AvatarImage src={friendProfile?.avatar_url} />
-                      <AvatarFallback>
+                      <AvatarFallback className="bg-purple-900/50 text-purple-200">
                         {friendProfile?.username?.slice(0, 2).toUpperCase()}
                       </AvatarFallback>
                     </Avatar>
                     <div className="flex-1 overflow-hidden">
-                      <h4 className="font-medium truncate">{friendProfile?.username}</h4>
-                      <p className="text-xs text-muted-foreground">Click to start chatting</p>
+                      <h4 className="font-medium truncate text-white group-hover:text-purple-300 transition-colors">
+                        {friendProfile?.username}
+                      </h4>
+                      <p className="text-xs text-white/50">Click to start chatting</p>
                     </div>
                   </button>
                 );
@@ -137,7 +141,7 @@ const NewChatDialog = ({ open, onOpenChange, onSelectFriend, currentUser }: NewC
   );
 };
 
-// --- MAIN COMPONENT: ChatList ---
+// --- MAIN COMPONENT: ChatList (Deep Glass Style) ---
 
 type ConnectionWithProfiles = Omit<ChatConnection, "otherUser">;
 
@@ -208,45 +212,48 @@ const ChatList = ({ user, onSelectChat, activeChatId }: ChatListProps) => {
     return conn.requester.id === user.id ? conn.receiver : conn.requester;
   };
 
-  // --- UPDATED SELF-HEALING CHAT STARTER ---
+  // FIX: Self-Healing Chat Logic with "Check First" Strategy
   const handleStartChat = async (conn: any) => {
     const otherUser = conn.requester_id === user.id ? conn.receiver : conn.requester;
     let conversationId = conn.conversations?.[0]?.id;
 
     if (!conversationId) {
-      // No chat room locally? Check database or create one.
       try {
-        const { data, error } = await supabase
+        // 1. Check if conversation already exists (avoids 409 Conflict)
+        const { data: existingConvo, error: fetchError } = await supabase
           .from('conversations')
-          .insert({ connection_id: conn.id })
-          .select()
-          .single();
-        
-        if (error) {
-          // If we get error 23505, it means the row ALREADY exists!
-          // We should just fetch it and use it.
-          if (error.code === '23505') {
-            console.log("Conversation already exists (duplicate key), fetching existing ID...");
+          .select('id')
+          .eq('connection_id', conn.id)
+          .maybeSingle(); // maybeSingle returns null instead of error if not found
+
+        if (existingConvo) {
+            conversationId = existingConvo.id;
+        } else {
+            // 2. If not found, THEN create it
+            const { data: newConvo, error: createError } = await supabase
+            .from('conversations')
+            .insert({ connection_id: conn.id })
+            .select()
+            .single();
             
-            const { data: existingData, error: fetchError } = await supabase
-              .from('conversations')
-              .select('id')
-              .eq('connection_id', conn.id)
-              .single();
-              
-            if (fetchError || !existingData) {
-               console.error("Critical error: Could not fetch existing chat", fetchError);
-               throw fetchError;
+            if (createError) {
+                // If we hit a race condition (extremely rare), catch it here
+                if (createError.code === '23505') {
+                    const { data: retryConvo } = await supabase
+                        .from('conversations')
+                        .select('id')
+                        .eq('connection_id', conn.id)
+                        .single();
+                    if (retryConvo) conversationId = retryConvo.id;
+                } else {
+                    throw createError;
+                }
+            } else if (newConvo) {
+                conversationId = newConvo.id;
             }
-            conversationId = existingData.id;
-          } else {
-            throw error;
-          }
-        } else if (data) {
-          conversationId = data.id;
         }
         
-        fetchFriends(); 
+        fetchFriends(); // Refresh local list
       } catch (err) {
         console.error("Failed to prepare chat:", err);
         toast({ title: "Error", description: "Could not start chat.", variant: "destructive" });
@@ -254,62 +261,71 @@ const ChatList = ({ user, onSelectChat, activeChatId }: ChatListProps) => {
       }
     }
 
-    const updatedConnection = {
-      ...conn,
-      conversations: [{ id: conversationId }]
-    };
-
-    onSelectChat({ 
-      type: "user", 
-      id: conn.id, 
-      data: { ...updatedConnection, otherUser } 
-    });
+    if (conversationId) {
+        onSelectChat({ 
+            type: "user", 
+            id: conn.id, 
+            data: { ...conn, conversations: [{ id: conversationId }], otherUser } 
+        });
+    }
   };
 
   return (
-    <aside className="w-full md:w-1/3 lg:w-1/4 h-full flex flex-col bg-card border-r relative">
-      <header className="p-4 border-b">
+    // Sidebar Container - Glass Effect
+    <aside className="w-full md:w-1/3 lg:w-1/4 h-full flex flex-col bg-black/20 backdrop-blur-xl border-r border-white/10 relative">
+      <header className="p-4 border-b border-white/10 bg-white/5 backdrop-blur-md">
         <div className="flex justify-between items-center">
-          <h1 className="text-xl font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
+          <h1 className="text-xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
             ConnectSphere
           </h1>
           <div className="flex gap-1">
-            <Button variant="ghost" size="icon" onClick={() => navigate("/connections")}>
+            <Button variant="ghost" size="icon" className="text-white/70 hover:text-white hover:bg-white/10" onClick={() => navigate("/connections")}>
               <Users className="h-5 w-5" />
             </Button>
-            <Button variant="ghost" size="icon" onClick={() => navigate("/profile")}>
+            <Button variant="ghost" size="icon" className="text-white/70 hover:text-white hover:bg-white/10" onClick={() => navigate("/profile")}>
               <UserCircle className="h-5 w-5" />
             </Button>
-            <Button variant="ghost" size="icon" onClick={handleSignOut}>
+            <Button variant="ghost" size="icon" className="text-white/70 hover:text-white hover:bg-white/10" onClick={handleSignOut}>
               <LogOut className="h-5 w-5" />
             </Button>
           </div>
         </div>
       </header>
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
         {loading ? (
           <div className="flex items-center justify-center h-full">
-            <Loader2 className="h-8 w-8 animate-spin" />
+            <Loader2 className="h-8 w-8 animate-spin text-purple-400" />
           </div>
         ) : (
           <nav className="p-2 space-y-1">
+            {/* AI Assistant Button */}
             <Button
               variant="ghost"
               className={cn(
-                "w-full justify-start h-16 gap-3 p-2",
-                activeChatId === "ai" && "bg-secondary"
+                "w-full justify-start h-16 gap-3 p-2 rounded-xl border border-transparent transition-all duration-200",
+                activeChatId === "ai" 
+                  ? "bg-purple-600/20 border-purple-500/30 shadow-[0_0_15px_rgba(168,85,247,0.15)] text-white" 
+                  : "text-white/80 hover:bg-white/5 hover:border-white/5 hover:text-white"
               )}
               onClick={() => onSelectChat({ type: "ai", id: "ai" })}
             >
-              <Avatar className="h-10 w-10">
-                <AvatarFallback className="bg-primary text-primary-foreground">
+              <Avatar className="h-10 w-10 ring-2 ring-purple-500/20">
+                <AvatarFallback className="bg-gradient-to-tr from-indigo-500 to-purple-500 text-white">
                   <Bot className="h-6 w-6" />
                 </AvatarFallback>
               </Avatar>
-              <span className="font-semibold text-md">AI Assistant</span>
+              <div className="flex flex-col items-start">
+                <span className="font-semibold text-md">AI Assistant</span>
+                <span className="text-xs text-white/50 font-normal">Always here to help</span>
+              </div>
             </Button>
 
+            <div className="text-xs font-semibold text-white/40 px-2 pt-2 mb-2 uppercase tracking-wider">
+              Friends
+            </div>
+
+            {/* Friend List */}
             {friends.map((conn) => {
               const otherUser = getOtherUser(conn);
               
@@ -318,20 +334,24 @@ const ChatList = ({ user, onSelectChat, activeChatId }: ChatListProps) => {
                   key={conn.id}
                   variant="ghost"
                   className={cn(
-                    "w-full justify-start h-16 gap-3 p-2",
-                    activeChatId === conn.id && "bg-secondary"
+                    "w-full justify-start h-16 gap-3 p-2 rounded-xl border border-transparent transition-all duration-200",
+                    activeChatId === conn.id 
+                        ? "bg-white/10 border-white/10 shadow-lg backdrop-blur-md text-white" 
+                        : "text-white/80 hover:bg-white/5 hover:border-white/5 hover:text-white"
                   )}
                   onClick={() => handleStartChat(conn)}
                 >
-                  <Avatar className="h-10 w-10">
+                  <Avatar className="h-10 w-10 border border-white/10">
                     <AvatarImage src={otherUser.avatar_url || ''} />
-                    <AvatarFallback><UserIcon /></AvatarFallback>
+                    <AvatarFallback className="bg-indigo-900/50 text-indigo-200">
+                      <UserIcon className="h-5 w-5" />
+                    </AvatarFallback>
                   </Avatar>
-                  <div className="flex flex-col items-start overflow-hidden">
+                  <div className="flex flex-col items-start overflow-hidden w-full">
                     <span className="font-semibold text-md truncate w-full text-left">
                       {otherUser.username}
                     </span>
-                    <span className="text-xs text-muted-foreground truncate w-full text-left">
+                    <span className="text-xs text-white/50 truncate w-full text-left font-normal">
                       Click to chat
                     </span>
                   </div>
@@ -340,21 +360,22 @@ const ChatList = ({ user, onSelectChat, activeChatId }: ChatListProps) => {
             })}
             
             {friends.length === 0 && (
-              <div className="text-center p-4 text-muted-foreground text-sm">
-                No friends yet. Click the + button to add some!
+              <div className="text-center p-6 text-white/40 text-sm italic">
+                No friends yet.<br/>Click the + button to add some!
               </div>
             )}
           </nav>
         )}
       </div>
 
-      <div className="absolute bottom-6 right-6">
+      {/* Floating Action Button */}
+      <div className="absolute bottom-6 right-6 z-10">
         <Button
           size="icon"
-          className="h-14 w-14 rounded-full shadow-xl bg-primary hover:bg-primary/90 transition-all hover:scale-105"
+          className="h-14 w-14 rounded-full shadow-lg bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 transition-all hover:scale-110 hover:shadow-purple-500/25 border border-white/10"
           onClick={() => setIsNewChatOpen(true)}
         >
-          <Plus className="h-6 w-6" />
+          <Plus className="h-6 w-6 text-white" />
         </Button>
       </div>
 

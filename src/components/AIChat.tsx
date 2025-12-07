@@ -1,10 +1,10 @@
 import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Send, Loader2, Sparkles } from "lucide-react";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Send, Loader2, Sparkles, Bot, User as UserIcon } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
 
 interface Message {
   role: "user" | "assistant";
@@ -23,13 +23,12 @@ const AIChat = () => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
 
+  // Auto-scroll to bottom when messages change
   useEffect(() => {
     if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      scrollRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [messages]);
-
-// PASTE THIS into your AIChat.tsx, replacing the old sendMessage function
 
   const sendMessage = async () => {
     if (!input.trim() || isLoading) return;
@@ -40,22 +39,19 @@ const AIChat = () => {
     setIsLoading(true);
 
     try {
-      // Make sure this variable name matches your .env file!
       const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY; 
 
       const response = await fetch(
-        // 1. This is the correct function name
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/gemini-chat`,
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            // 2. These headers are required to call an Edge Function
             "Authorization": `Bearer ${anonKey}`,
             "apikey": anonKey
           },
           body: JSON.stringify({
-            messages: [...messages, userMessage] // Send the history
+            messages: [...messages, userMessage] 
           }),
         }
       );
@@ -65,12 +61,11 @@ const AIChat = () => {
         throw new Error(errorData.error || "Failed to get response");
       }
 
-      // NO STREAMING NEEDED! Just get the simple JSON response.
       const data = await response.json();
 
       const assistantMessage: Message = {
         role: "assistant",
-        content: data.response, // 'data.response' is what we named it in our function
+        content: data.response, 
       };
 
       setMessages(prev => [...prev, assistantMessage]);
@@ -81,7 +76,6 @@ const AIChat = () => {
         description: error.message || "Failed to send message",
         variant: "destructive",
       });
-      // Roll back the user's message if the API call fails
       setMessages(prev => prev.slice(0, -1));
     } finally {
       setIsLoading(false);
@@ -89,48 +83,105 @@ const AIChat = () => {
   };
 
   return (
-    <Card className="shadow-medium">
-      <CardHeader className="bg-gradient-to-r from-primary/10 to-accent/10">
-        <CardTitle className="flex items-center gap-2">
-          <Sparkles className="h-5 w-5 text-primary" />
-          AI Assistant
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="p-0">
-        <ScrollArea ref={scrollRef} className="h-[500px] p-4">
-          <div className="space-y-4">
-            {messages.map((message, index) => (
-              <div
-                key={index}
-                className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
-              >
-                <div
-                  className={`max-w-[80%] rounded-lg p-3 ${
-                    message.role === "user"
-                      ? "bg-gradient-to-r from-primary to-accent text-primary-foreground"
-                      : "bg-secondary text-secondary-foreground"
-                  }`}
-                >
-                  {message.content}
-                </div>
-              </div>
-            ))}
+    <div className="h-full flex flex-col relative bg-transparent">
+      {/* Header - Glass Effect */}
+      <header className="border-b border-white/10 bg-white/5 backdrop-blur-xl p-4 sticky top-0 z-10">
+        <div className="flex items-center gap-4">
+          <div className="h-10 w-10 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center text-white shadow-[0_0_15px_rgba(168,85,247,0.3)]">
+            <Sparkles className="h-5 w-5" />
           </div>
-        </ScrollArea>
-        <div className="border-t p-4 flex gap-2">
-          <Input
+          <div>
+            <h1 className="text-lg font-bold text-white tracking-wide flex items-center gap-2">
+              AI Assistant
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/20 border border-purple-500/30 text-purple-200">BETA</span>
+            </h1>
+            <div className="flex items-center gap-1.5">
+              <span className="h-2 w-2 rounded-full bg-purple-400 animate-pulse shadow-[0_0_8px_rgba(192,132,252,0.5)]" />
+              <span className="text-xs text-white/50">Online</span>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* Messages Area */}
+      <main className="flex-1 overflow-y-auto p-4 space-y-6 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
+        {messages.map((msg, index) => {
+          const isMe = msg.role === "user";
+          return (
+            <div
+              key={index}
+              className={`flex items-end gap-3 ${isMe ? "justify-end" : "justify-start"}`}
+            >
+              {!isMe && (
+                <div className="h-8 w-8 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center text-white shrink-0 shadow-lg">
+                  <Bot className="h-4 w-4" />
+                </div>
+              )}
+              
+              <div
+                className={`max-w-[80%] md:max-w-[70%] p-4 rounded-2xl text-sm shadow-lg backdrop-blur-sm border ${
+                  isMe
+                    ? "bg-gradient-to-br from-purple-600 to-indigo-600 text-white rounded-br-none border-transparent shadow-purple-500/10"
+                    : "bg-black/40 text-white/90 rounded-bl-none border-white/10 shadow-black/20"
+                }`}
+              >
+                {/* We use 'whitespace-pre-wrap' so the AI's formatting (paragraphs, code blocks) 
+                   is preserved and legible.
+                */}
+                <p className="leading-relaxed whitespace-pre-wrap font-light tracking-wide">
+                  {msg.content}
+                </p>
+              </div>
+
+              {isMe && (
+                <div className="h-8 w-8 rounded-full bg-white/10 border border-white/10 flex items-center justify-center text-white shrink-0">
+                  <UserIcon className="h-4 w-4" />
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {isLoading && (
+          <div className="flex items-center gap-3">
+            <div className="h-8 w-8 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center text-white shrink-0 animate-pulse">
+              <Bot className="h-4 w-4" />
+            </div>
+            <div className="bg-black/40 border border-white/10 px-4 py-3 rounded-2xl rounded-bl-none flex items-center gap-2">
+              <span className="w-2 h-2 bg-purple-400 rounded-full animate-bounce [animation-delay:-0.3s]"></span>
+              <span className="w-2 h-2 bg-purple-400 rounded-full animate-bounce [animation-delay:-0.15s]"></span>
+              <span className="w-2 h-2 bg-purple-400 rounded-full animate-bounce"></span>
+            </div>
+          </div>
+        )}
+        <div ref={scrollRef} />
+      </main>
+
+      {/* Input Area - Glass Effect */}
+      <footer className="p-4 border-t border-white/10 bg-white/5 backdrop-blur-xl">
+        <div className="flex gap-3 items-center relative">
+          <Input 
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyPress={(e) => e.key === "Enter" && sendMessage()}
-            placeholder="Type your message..."
+            onKeyDown={(e) => e.key === "Enter" && sendMessage()}
+            placeholder="Ask anything..."
+            autoComplete="off"
             disabled={isLoading}
+            className="bg-white/5 border-white/10 text-white placeholder:text-white/30 focus-visible:ring-purple-500/50 focus-visible:border-purple-500/50 h-12 rounded-xl pl-4 pr-12 shadow-inner transition-all hover:bg-white/10"
           />
-          <Button onClick={sendMessage} disabled={isLoading || !input.trim()}>
+          <Button 
+            onClick={sendMessage} 
+            disabled={!input.trim() || isLoading}
+            className="absolute right-1.5 h-9 w-9 rounded-lg bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white shadow-lg transition-all hover:scale-105 disabled:opacity-50 disabled:hover:scale-100"
+            size="icon"
+          >
             {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
           </Button>
         </div>
-      </CardContent>
-    </Card>
+        <div className="text-center mt-2">
+          <p className="text-[10px] text-white/20 uppercase tracking-widest">Powered by Google Gemini</p>
+        </div>
+      </footer>
+    </div>
   );
 };
 
