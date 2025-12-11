@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+// Updated to relative path to ensure data fetching works with the file we created
+import { supabase } from "../lib/supabaseClient";
 import { User } from "@supabase/supabase-js";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,16 +9,28 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, User as UserIcon, UserPlus, Check, X, Search, Users } from "lucide-react";
+import { Loader2, User as UserIcon, UserPlus, Check, X, Search, Users, MessageSquare } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import type { Tables } from "@/integrations/supabase/types";
 
 // Define the types we'll be working with
-type Profile = Tables<"profiles">;
+// Mocking the type since the generated file isn't available in this context
+type Profile = {
+  id: string;
+  username: string;
+  avatar_url: string | null;
+  updated_at?: string;
+};
 
-// === FIX #1: We are only selecting parts of the profile, so we'll be specific ===
-// This new type *exactly* matches what our new query will fetch.
-type ConnectionWithProfiles = Tables<"connections"> & {
+type Connection = {
+  id: string;
+  requester_id: string;
+  receiver_id: string;
+  status: 'pending' | 'accepted' | 'rejected';
+  created_at: string;
+  updated_at: string;
+};
+
+type ConnectionWithProfiles = Connection & {
   requester: Pick<Profile, "id" | "username" | "avatar_url">;
   receiver: Pick<Profile, "id" | "username" | "avatar_url">;
 };
@@ -47,7 +60,6 @@ const Connections = () => {
       }
       setUser(session.user);
       
-      // === FIX #2: The new, unambiguous .select() query ===
       const { data: connections, error } = await supabase
         .from("connections")
         .select(`
@@ -67,12 +79,17 @@ const Connections = () => {
         const accepted: ConnectionWithProfiles[] = []; 
         
         // No more 'as any', TypeScript knows the types now.
-        connections.forEach(conn => {
-        if (conn.status === 'accepted') {
-        accepted.push(conn as unknown as ConnectionWithProfiles);
-        } else if (conn.status === 'pending' && conn.receiver_id === session.user.id) {
-        pending.push(conn as unknown as ConnectionWithProfiles);
-        }
+        const typedConnections = connections as unknown as ConnectionWithProfiles[];
+
+        typedConnections.forEach(conn => {
+          if (conn.status === 'accepted') {
+            accepted.push(conn);
+          } else if (conn.status === 'pending') {
+             // Only show pending requests WHERE I AM THE RECEIVER in the "Requests" tab
+             if (conn.receiver_id === session.user.id) {
+                pending.push(conn);
+             }
+          }
         });
 
         setFriends(accepted);
@@ -97,14 +114,14 @@ const Connections = () => {
     const { data, error } = await supabase
       .from("profiles")
       .select("*")
-      .like("username", `%${searchTerm}%`)
+      .ilike("username", `%${searchTerm}%`)
       .neq("id", user.id) // Don't show myself in search results
       .limit(10);
 
     if (error) {
       toast({ title: "Search Error", description: error.message, variant: "destructive" });
     } else {
-      setSearchResults(data);
+      setSearchResults(data as Profile[]);
     }
   };
 
@@ -128,7 +145,7 @@ const Connections = () => {
       .insert({
         requester_id: user.id,
         receiver_id: receiverId,
-        // 'status' defaults to 'pending' from your SQL
+        status: 'pending'
       });
 
     if (error) {
@@ -226,8 +243,9 @@ const Connections = () => {
                       <span className="font-medium">{getOtherUser(conn).username}</span>
                     </div>
                     <div className="flex gap-2">
-                      <Button variant="outline" size="sm" onClick={() => navigate(`/chat/${conn.id}`)}>
-                        Message
+                      {/* === UPDATED MESSAGE BUTTON: Navigates to Dashboard with Chat State === */}
+                      <Button variant="outline" size="sm" onClick={() => navigate("/", { state: { selectedConnection: conn } })}>
+                        <MessageSquare className="h-4 w-4 mr-2" /> Message
                       </Button>
                       <Button variant="destructive" size="sm" onClick={() => removeConnection(conn.id)}>
                         Remove
@@ -287,8 +305,8 @@ const Connections = () => {
                 <Input 
                   placeholder="Search by username..." 
                   value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                  onChange={(e: any) => setSearchTerm(e.target.value)}
+                  onKeyDown={(e: any) => e.key === 'Enter' && handleSearch()}
                 />
                 <Button onClick={handleSearch}><Search className="h-4 w-4" /></Button>
               </div>

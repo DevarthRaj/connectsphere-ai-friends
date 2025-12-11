@@ -12,7 +12,7 @@ import { Loader2, MessageSquare } from "lucide-react";
 const Dashboard = () => {
   const [user, setUser] = useState<User | null>(null);
   const [activeChat, setActiveChat] = useState<ActiveChat | null>(null);
-  const navigate = useNavigate(); // Make sure navigate is defined
+  const navigate = useNavigate(); // Make sure navigate is definedF
 
   // This is the corrected auth-checking hook
   useEffect(() => {
