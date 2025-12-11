@@ -2,13 +2,22 @@ version: '3.8'
 
 services:
   web:
+    image: devarthraj/connectsphere:latest
     build:
       context: .
       dockerfile: Dockerfile
-      # args must be nested UNDER build, not at the same level
       args:
         - VITE_SUPABASE_URL=${VITE_SUPABASE_URL}
         - VITE_SUPABASE_PUBLISHABLE_KEY=${VITE_SUPABASE_PUBLISHABLE_KEY}
+        - VITE_GEMINI_API_KEY=${VITE_GEMINI_API_KEY}
     ports:
-      - "8080:80"
+      - "80:80"
+    restart: always
+
+  watchtower:
+    image: containrrr/watchtower
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    # CHANGED: Check every 30 seconds instead of 5 minutes
+    command: --interval 30
     restart: always

@@ -1,10 +1,10 @@
 import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Send, Loader2, Sparkles, Bot, User as UserIcon } from "lucide-react";
+import { Sparkles, Bot, User as UserIcon, Send, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
+// CHANGED: Import Google SDK instead of Supabase
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 interface Message {
   role: "user" | "assistant";
@@ -23,7 +23,6 @@ const AIChat = () => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
 
-  // Auto-scroll to bottom when messages change
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollIntoView({ behavior: "smooth" });
@@ -34,58 +33,50 @@ const AIChat = () => {
     if (!input.trim() || isLoading) return;
 
     const userMessage: Message = { role: "user", content: input };
-    setMessages(prev => [...prev, userMessage]);
-    setInput("");
+    const newMessages = [...messages, userMessage];
+    
+    setMessages(newMessages);
+    setInput(""); 
     setIsLoading(true);
 
     try {
-      const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY; 
-
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/gemini-chat`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${anonKey}`,
-            "apikey": anonKey
-          },
-          body: JSON.stringify({
-            messages: [...messages, userMessage] 
-          }),
-        }
-      );
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Failed to get response");
+      // 1. GET THE KEY (Baked in by Docker or .env)
+      const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+      
+      if (!apiKey) {
+        throw new Error("API Key not found. Please check your .env or Docker build args.");
       }
 
-      const data = await response.json();
+      // 2. CALL GOOGLE DIRECTLY
+      const genAI = new GoogleGenerativeAI(apiKey);
+      const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+      
+      const result = await model.generateContent(input);
+      const response = await result.response;
+      const text = response.text();
 
-      const assistantMessage: Message = {
+      // 3. UPDATE UI
+      setMessages(prev => [...prev, {
         role: "assistant",
-        content: data.response, 
-      };
-
-      setMessages(prev => [...prev, assistantMessage]);
+        content: text,
+      }]);
 
     } catch (error: any) {
+      console.error("Chat Error:", error);
       toast({
         title: "Error",
         description: error.message || "Failed to send message",
         variant: "destructive",
       });
-      setMessages(prev => prev.slice(0, -1));
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <div className="h-full flex flex-col relative bg-transparent">
+    <div className="h-full flex flex-col relative bg-transparent w-full">
       {/* Header - Glass Effect */}
-      <header className="border-b border-white/10 bg-white/5 backdrop-blur-xl p-4 sticky top-0 z-10">
+      <header className="border-b border-white/10 bg-white/5 backdrop-blur-xl p-4 sticky top-0 z-10 rounded-t-xl">
         <div className="flex items-center gap-4">
           <div className="h-10 w-10 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center text-white shadow-[0_0_15px_rgba(168,85,247,0.3)]">
             <Sparkles className="h-5 w-5" />
@@ -125,9 +116,6 @@ const AIChat = () => {
                     : "bg-black/40 text-white/90 rounded-bl-none border-white/10 shadow-black/20"
                 }`}
               >
-                {/* We use 'whitespace-pre-wrap' so the AI's formatting (paragraphs, code blocks) 
-                   is preserved and legible.
-                */}
                 <p className="leading-relaxed whitespace-pre-wrap font-light tracking-wide">
                   {msg.content}
                 </p>
@@ -157,7 +145,7 @@ const AIChat = () => {
       </main>
 
       {/* Input Area - Glass Effect */}
-      <footer className="p-4 border-t border-white/10 bg-white/5 backdrop-blur-xl">
+      <footer className="p-4 border-t border-white/10 bg-white/5 backdrop-blur-xl rounded-b-xl">
         <div className="flex gap-3 items-center relative">
           <Input 
             value={input}
