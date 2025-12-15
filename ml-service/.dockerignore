@@ -1,0 +1,10 @@
+# Ignore the virtual environment (Save huge space!)
+venv/
+
+# Ignore cache files
+__pycache__/
+model/__pycache__/
+
+# Ignore git files
+.git
+.gitignore

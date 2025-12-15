@@ -28,3 +28,8 @@ dist-ssr
 .env
 .env.*
 !.env.example
+
+# Python ML Service
+ml-service/venv/
+ml-service/__pycache__/
+ml-service/model/*.pkl  # Optional: Don't push large models to git
