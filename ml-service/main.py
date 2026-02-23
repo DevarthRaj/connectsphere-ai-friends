@@ -30,7 +30,7 @@ EMOTION_COLORS = {
 class Message(BaseModel):
     text: str
 
-@app.post("/")
+@app.post("/predict")
 def predict_emotion(msg: Message):
     # Predict emotion
     prediction = model.predict([msg.text])[0]
