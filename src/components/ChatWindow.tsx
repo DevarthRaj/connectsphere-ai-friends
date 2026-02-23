@@ -98,7 +98,7 @@ const ChatWindow = ({ user, connection }: ChatWindowProps) => {
 
     try {
       // 1️⃣ Call ML API
-      const res = await fetch("/api/", {
+      const res = await fetch("http://44.223.0.97:8000/", {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
