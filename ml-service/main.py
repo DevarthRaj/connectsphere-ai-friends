@@ -9,7 +9,7 @@ app = FastAPI()
 # 2. Add the middleware to allow your React app to connect
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allows all apps to connect (great for local dev)
+    allow_origins=["http://44.223.0.97"],  # Allows all apps to connect (great for local dev)
     allow_credentials=True,
     allow_methods=["*"],  # Allows all methods (POST, GET, etc.)
     allow_headers=["*"],
