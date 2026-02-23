@@ -98,7 +98,7 @@ const ChatWindow = ({ user, connection }: ChatWindowProps) => {
 
     try {
       // 1️⃣ Call ML API
-      const res = await fetch("http://localhost:8000/", {
+      const res = await fetch("/api/", {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
