@@ -15,9 +15,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ... rest of your code (model loading, etc.) ...
-
-app = FastAPI()
 
 # Load the trained model
 model = joblib.load("model/emotion_model.pkl")
