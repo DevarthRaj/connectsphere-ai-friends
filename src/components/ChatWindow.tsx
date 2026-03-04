@@ -98,7 +98,8 @@ const ChatWindow = ({ user, connection }: ChatWindowProps) => {
 
     try {
       // 1️⃣ Call ML API
-      const res = await fetch("http://44.223.0.97:8000/predict", {
+      // AFTER - goes through Nginx proxy
+      const res = await fetch("/api/ml/predict", {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
