@@ -11,28 +11,21 @@ services:
         - VITE_SUPABASE_PUBLISHABLE_KEY=${VITE_SUPABASE_PUBLISHABLE_KEY}
         - VITE_GEMINI_API_KEY=${VITE_GEMINI_API_KEY}
     ports:
-      - "80:80" # ← Only web service talks to the internet
+      - "80:80"
     depends_on:
-      - ml-service # ← Start ml-service before web
+      - ml-service
     restart: always
 
+  # ← ADD THIS SERVICE
   ml-service:
-    # ← This name becomes the DNS hostname inside Docker
-    build:
-      context: ./ml-service
-      dockerfile: Dockerfile
+    image: devarthraj/emotion-api:latest
     expose:
       - "8000"
-      # expose ≠ ports
-      # expose = only other containers on same network can reach this
-      # ports  = the whole internet can reach this
-      # This is why "ml-service:8000" works in nginx.conf but
-      # nobody outside can directly hit port 8000
     restart: always
 
   watchtower:
     image: containrrr/watchtower
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-    command: --interval 300 # ← Changed from 30 to 300 (5 min, not 30 sec)
+    command: --interval 300 --cleanup
     restart: always
